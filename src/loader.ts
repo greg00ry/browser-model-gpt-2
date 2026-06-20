@@ -28,14 +28,15 @@ export function loadSafetensors(buffer: ArrayBuffer, config: GPT2Config): GPT2We
     if (!meta) throw new Error(`Missing tensor: ${name}`);
     if (meta.dtype !== "F32") throw new Error(`Expected F32, got ${meta.dtype} for ${name}`);
     const [start, end] = meta.data_offsets;
-    // zero-copy view into the original buffer — safetensors guarantees alignment
-    const data = new Float32Array(buffer, dataStart + start, (end - start) / 4);
+    const src = new Uint8Array(buffer, dataStart + start, end - start);
+    const data = new Float32Array(src.length / 4);
+    new Uint8Array(data.buffer).set(src);
     return new Tensor(data, meta.shape);
   }
 
   const blocks: BlockWeights[] = [];
   for (let i = 0; i < config.nLayers; i++) {
-    const h = `transformer.h.${i}`;
+    const h = `h.${i}`;
     blocks.push({
       ln1Weight:   tensor(`${h}.ln_1.weight`),
       ln1Bias:     tensor(`${h}.ln_1.bias`),
@@ -57,11 +58,11 @@ export function loadSafetensors(buffer: ArrayBuffer, config: GPT2Config): GPT2We
   }
 
   return {
-    wte:       tensor("transformer.wte.weight"),
-    wpe:       tensor("transformer.wpe.weight"),
+    wte:       tensor("wte.weight"),
+    wpe:       tensor("wpe.weight"),
     blocks,
-    lnFWeight: tensor("transformer.ln_f.weight"),
-    lnFBias:   tensor("transformer.ln_f.bias"),
+    lnFWeight: tensor("ln_f.weight"),
+    lnFBias:   tensor("ln_f.bias"),
   };
 }
 
