@@ -117,7 +117,7 @@ export function gelu(t: Tensor): Tensor {
   const out = new Tensor(new Float32Array(t.size), t.shape);
   for (let i = 0; i < t.size; i++) {
     const x = t.data[i];
-    out.data[i] = 0.5 * x * (1 + Math.tanh(Math.SQRT2 / Math.PI * (x + 0.044715 * x * x * x)));
+    out.data[i] = 0.5 * x * (1 + Math.tanh(Math.SQRT2 / Math.sqrt(Math.PI) * (x + 0.044715 * x * x * x)));
   }
   return out;
 }
