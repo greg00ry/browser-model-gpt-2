@@ -1,27 +1,35 @@
-Zapisz notatkę do vaultu Obsidian w folderze `brain/`.
+Zapisz notatkę do vaultu Obsidian w `brain/`.
 
-Przyjmij od użytkownika temat i treść notatki. Na podstawie tematu wybierz odpowiedni podfolder:
-- `brain/architecture/` — decyzje architektoniczne, wybory technologiczne
+## Podfoldery
+
+Wybierz na podstawie tematu:
+- `brain/architecture/` — decyzje architektoniczne, wybory technologiczne, trade-offy
 - `brain/benchmarks/` — wyniki pomiarów, obserwacje wydajnościowe
-- `brain/research/` — notatki badawcze, eksperymenty, pytania
+- `brain/research/` — eksperymenty, pytania otwarte, notatki z kodu Karpathy'ego
 
-Utwórz plik `.md` z następującą strukturą:
-```
+## Format pliku
+
+Nazwa pliku: slug tytułu (małe litery, myślniki), np. `wasm-target-decyzja.md`
+
+```markdown
 ---
-date: <dzisiejsza data ISO>
-tags: [<pasujące tagi>]
+date: <YYYY-MM-DD>
+tags: [<tagi>]
 ---
 
-# <tytuł>
+# <Tytuł>
 
-<treść notatki>
+<Treść — konkretna, bez lania wody. Co, dlaczego, jakie konsekwencje.>
 
 ## Powiązane
 
 - [[index]]
-- [[<inne powiązane notatki jeśli istnieją>]]
+- [[<slug innych powiązanych notatek>]]
 ```
 
-Nazwa pliku: slug z tytułu (małe litery, myślniki zamiast spacji), np. `decyzja-wasm-target.md`.
+## Zasady
 
-Po zapisaniu potwierdź ścieżkę do pliku.
+- Pisz po polsku
+- Skup się na TYM CO NIEOCZYWISTE — nie dokumentuj tego co widać w kodzie
+- Zawsze dodaj sekcję "Powiązane" z wikilinkami do istniejących notatek
+- Po zapisaniu potwierdź ścieżkę i zaproponuj czy dodać powiązanie w innych notatkach
