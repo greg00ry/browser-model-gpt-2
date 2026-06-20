@@ -1,4 +1,3 @@
-import { readFile } from "fs/promises";
 import { GPT2Weights, GPT2Config, GPT2_SMALL } from "./model.js";
 import { Tensor } from "./tensor.js";
 
@@ -38,6 +37,7 @@ export class WasmRunner {
 
   static async load(wasmPath: string, weights: GPT2Weights, config: GPT2Config = GPT2_SMALL): Promise<WasmRunner> {
     const runner = new WasmRunner(config);
+    const { readFile } = await import("fs/promises");
     const bytes = await readFile(wasmPath);
     const { instance } = await WebAssembly.instantiate(bytes, {
       env: { abort: () => { throw new Error("Wasm abort"); } },
