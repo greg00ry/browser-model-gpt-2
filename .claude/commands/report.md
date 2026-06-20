@@ -1,43 +1,53 @@
 # Skill: /report
 
-Użytkownik wywołuje `/report` żeby zaktualizować raport badawczy projektu "The Brain".
+Użytkownik wywołuje `/report` żeby dodać nowy plik raportu do brancha `paper`.
 
-## Co robisz
+## Kroki — wykonaj je po kolei
 
-1. Przeczytaj aktualne dane benchmarków z `brain/benchmarks/` (szczególnie `three-way-comparison.md` i `wasm-vs-js-baseline.md`).
-2. Sprawdź ostatnie commity na `main` żeby wychwycić nowe wyniki lub optymalizacje.
-3. Wygeneruj gotową sekcję raportu w formacie Markdown — tabelę wyników, analizę, wnioski — którą użytkownik może wkleić do swojego dokumentu.
+### 1. Przełącz na branch `paper`
+```bash
+git checkout paper
+```
+Potwierdź użytkownikowi że jesteś na `paper`.
 
-## Format wyjścia
+### 2. Poproś o plik
+Napisz do użytkownika:
+> Jestem na branchu `paper`. Wklej treść pliku raportu — powiedz też jak ma się nazywać.
 
-Zawsze generuj:
+Czekaj. Nie rób nic więcej dopóki użytkownik nie wklei treści.
 
-### Sekcja: Wyniki benchmarku
+### 3. Zapisz plik
+Gdy użytkownik wklei treść i poda nazwę pliku — zapisz plik w katalogu głównym projektu (obok istniejących `.docx`).
 
-Tabela 4-way (Python PyTorch / Python numpy / JS / Wasm) z kolumnami:
-- Backend
-- tok/s
-- vs numpy (uczciwy baseline)
-- Stack
+### 4. Dodaj notatkę do brain
+Utwórz plik `brain/research/report-<slug>.md` wg formatu:
+```
+---
+date: <dzisiaj>
+tags: [raport, paper, etap-1]
+---
 
-### Sekcja: Analiza
+# <tytuł raportu>
 
-Krótki akapit wyjaśniający:
-- dlaczego numpy jest uczciwym baseline (BLAS matmul, ręczny transformer)
-- dlaczego PyTorch jest szybszy (fused ops, cache-blocking)
-- dlaczego JS i Wasm są wolniejsze (naiwny triple-loop bez SIMD)
+Dodano plik: `<nazwa pliku>`
+Branch: `paper`
 
-### Sekcja: Historia optymalizacji Wasm
+<krótkie 2-3 zdania streszczenie tego co raport zawiera — na podstawie wklejonej treści>
 
-Tabela postępu: naiwna wersja → scratch pre-alokacja → lm_head only last token.
+## Powiązane
+- [[benchmarks/three-way-comparison]]
+- [[benchmarks/wasm-vs-js-baseline]]
+```
 
-### Sekcja: Wnioski
+### 5. Commit i push na `paper`
+```bash
+git add <plik raportu> brain/research/report-<slug>.md
+git commit -m "Add report: <tytuł>"
+git push origin paper
+```
 
-Bullet lista — co udało się pokazać, co jest następnym krokiem.
-
-## Zasady
-
-- Używaj danych z `brain/` — nie wymyślaj liczb.
-- Jeśli użytkownik przekaże nowe wyniki w wiadomości, uwzględnij je w raporcie.
-- Piszesz po polsku, styl akademicki ale zwięzły.
-- Nie twórz pliku — tylko wypisz treść żeby użytkownik mógł ją skopiować.
+### 6. Wróć na `main`
+```bash
+git checkout main
+```
+Potwierdź użytkownikowi że wróciłeś na `main`.
