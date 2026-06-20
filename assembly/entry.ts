@@ -1,5 +1,22 @@
 import { forward } from "./model";
 
+// zwraca wskaźnik do surowych bajtów Float32Array — JS pisze bezpośrednio do Wasm memory
+export function dataPtr(arr: Float32Array): usize {
+  return arr.dataStart;
+}
+
+export function newF32(length: i32): Float32Array {
+  return new Float32Array(length);
+}
+
+export function newI32(length: i32): Int32Array {
+  return new Int32Array(length);
+}
+
+export function i32DataPtr(arr: Int32Array): usize {
+  return arr.dataStart;
+}
+
 // globalne referencje do wag — kopiowane raz przy init, trzymane w pamięci Wasm
 let g_wte: Float32Array = new Float32Array(0);
 let g_wpe: Float32Array = new Float32Array(0);

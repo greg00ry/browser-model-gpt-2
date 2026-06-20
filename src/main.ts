@@ -1,6 +1,7 @@
 import { forward, GPT2Weights, GPT2Config, GPT2_SMALL } from "./model.js";
 import { loadSafetensors, loadFromFile } from "./loader.js";
 import { sample, greedy, lastTokenLogits } from "./sampler.js";
+import { WasmRunner } from "./wasm-runner.js";
 
 export interface Tokenizer {
   encode(text: string): number[];
@@ -61,33 +62,65 @@ export async function generate(
 
 async function main() {
   const weightsPath = process.argv[2] ?? "weights/gpt2.safetensors";
-  const prompt = process.argv[3] ?? "The brain is";
+  const wasmPath    = process.argv[3] ?? "build/model.wasm";
+  const prompt      = process.argv[4] ?? "The brain is";
 
   console.log(`Loading weights from ${weightsPath}...`);
   const t0 = performance.now();
   const weights = await loadFromFile(weightsPath, GPT2_SMALL);
-  console.log(`Loaded in ${((performance.now() - t0) / 1000).toFixed(2)}s`);
+  console.log(`Loaded in ${((performance.now() - t0) / 1000).toFixed(2)}s\n`);
 
-  // placeholder — zastąp prawdziwym tiktoken w tokenizer.ts
   const tokenizer = await loadTokenizer();
 
-  console.log(`\nPrompt: "${prompt}"\n`);
+  // ── benchmark JS ──────────────────────────────────────────────────
+  console.log(`[ JS ] Prompt: "${prompt}"`);
+  const jsResult = await runBenchmark(prompt, tokenizer, weights, (input, w) =>
+    forward(input, w, GPT2_SMALL),
+  );
+  console.log(`[ JS ] ${jsResult.tokens} tokens in ${jsResult.elapsed.toFixed(2)}s = ${jsResult.tps.toFixed(2)} tok/s\n`);
 
+  // ── benchmark Wasm ────────────────────────────────────────────────
+  console.log(`[Wasm] Loading model.wasm...`);
+  const tw = performance.now();
+  const runner = await WasmRunner.load(wasmPath, weights, GPT2_SMALL);
+  console.log(`[Wasm] Wasm init in ${((performance.now() - tw) / 1000).toFixed(2)}s`);
+  console.log(`[Wasm] Prompt: "${prompt}"`);
+  const wasmResult = await runBenchmark(prompt, tokenizer, weights, (input) =>
+    runner.forward(input),
+  );
+  console.log(`[Wasm] ${wasmResult.tokens} tokens in ${wasmResult.elapsed.toFixed(2)}s = ${wasmResult.tps.toFixed(2)} tok/s\n`);
+
+  // ── porównanie ────────────────────────────────────────────────────
+  const speedup = wasmResult.tps / jsResult.tps;
+  console.log(`Speedup Wasm vs JS: ${speedup.toFixed(2)}x`);
+}
+
+async function runBenchmark(
+  prompt: string,
+  tokenizer: Tokenizer,
+  weights: GPT2Weights,
+  forwardFn: (tokens: number[], w: GPT2Weights) => ReturnType<typeof forward>,
+) {
+  const MAX_TOKENS = 20;
+  const tokens = tokenizer.encode(prompt);
+  const generated: number[] = [];
   let tokenCount = 0;
-  const t1 = performance.now();
+  process.stdout.write("  output: ");
 
-  const output = await generate(prompt, tokenizer, weights, GPT2_SMALL, {
-    maxNewTokens: 50,
-    temperature: 1.0,
-    topK: 40,
-    onToken: (t) => {
-      process.stdout.write(t);
-      tokenCount++;
-    },
-  });
+  const t0 = performance.now();
+  for (let i = 0; i < MAX_TOKENS; i++) {
+    const input = [...tokens, ...generated];
+    const logits = forwardFn(input, weights);
+    const nextToken = sample(lastTokenLogits(logits), { temperature: 1.0, topK: 40 });
+    generated.push(nextToken);
+    process.stdout.write(tokenizer.decode([nextToken]));
+    tokenCount++;
+    if (nextToken === 50256) break;
+  }
+  const elapsed = (performance.now() - t0) / 1000;
+  process.stdout.write("\n");
 
-  const elapsed = (performance.now() - t1) / 1000;
-  console.log(`\n\n--- ${tokenCount} tokens in ${elapsed.toFixed(2)}s = ${(tokenCount / elapsed).toFixed(1)} tok/s`);
+  return { tokens: tokenCount, elapsed, tps: tokenCount / elapsed };
 }
 
 async function loadTokenizer(): Promise<Tokenizer> {

@@ -16,19 +16,18 @@ interface AsmExports {
     layerIndex: number,
   ): void;
   runForward(tokens: number, out: number): void;
-  allocF32(length: number): number;
-  __newArray(id: number, values: ArrayLike<number>): number;
-  __getArray(ptr: number): number[];
-  __new(size: number, id: number): number;
+  newF32(length: number): number;
+  dataPtr(arr: number): number;
+  newI32(length: number): number;
+  i32DataPtr(arr: number): number;
   __pin(ptr: number): number;
   __unpin(ptr: number): void;
-  readonly Int32Array_ID: number;
-  readonly Float32Array_ID: number;
 }
 
 export class WasmRunner {
   private exp!: AsmExports;
-  private outPtr!: number;
+  private outObj: number = 0;   // AS Float32Array object pointer (dla runForward)
+  private outRaw: number = 0;   // raw data pointer (dla odczytu wyników)
   private seqLen: number = 0;
   private readonly vocabSize: number;
 
@@ -52,51 +51,56 @@ export class WasmRunner {
   }
 
   // tokens [seq] -> logits [seq, vocabSize] (taki sam interfejs jak TS forward())
-  forward(tokens: number[], config: GPT2Config = this.config): Tensor {
+  forward(tokens: number[]): Tensor {
     const { exp, vocabSize } = this;
     const seq = tokens.length;
 
     // (re)alokuj bufor wyjściowy jeśli seq się zmienił
     if (seq !== this.seqLen) {
-      if (this.outPtr) exp.__unpin(this.outPtr);
-      this.outPtr = exp.__pin(exp.allocF32(seq * vocabSize));
+      if (this.outObj) exp.__unpin(this.outObj);
+      this.outObj = exp.__pin(exp.newF32(seq * vocabSize));   // managed object
+      this.outRaw = exp.dataPtr(this.outObj);                  // raw data ptr
       this.seqLen = seq;
     }
 
     // utwórz Int32Array z tokenami w pamięci Wasm
-    const tokPtr = exp.__pin(exp.__newArray(exp.Int32Array_ID, tokens));
+    const tokArr = exp.__pin(exp.newI32(seq));
+    new Int32Array(exp.memory.buffer, exp.i32DataPtr(tokArr), seq).set(tokens);
 
-    exp.runForward(tokPtr, this.outPtr);
-    exp.__unpin(tokPtr);
+    exp.runForward(tokArr, this.outObj);  // przekazuj managed object, nie raw ptr
+    exp.__unpin(tokArr);
 
-    // odczytaj wynik z pamięci Wasm
-    const view = new Float32Array(exp.memory.buffer, this.outPtr + 20, seq * vocabSize);
+    // odczytaj wynik z raw data pointer
+    const view = new Float32Array(exp.memory.buffer, this.outRaw, seq * vocabSize);
     return new Tensor(new Float32Array(view), [seq, vocabSize]);
   }
 
   private loadWeights(w: GPT2Weights): void {
     const { exp } = this;
-    const pin = (arr: Float32Array) => {
-      const ptr = exp.__pin(exp.allocF32(arr.length));
-      new Float32Array(exp.memory.buffer, ptr + 20, arr.length).set(arr);
-      return ptr;
+
+    // alokuje Float32Array w Wasm, kopiuje dane JS → Wasm, zwraca obiekt pointer (pinned)
+    const copyToWasm = (data: Float32Array): number => {
+      const arr = exp.__pin(exp.newF32(data.length));
+      const raw = exp.dataPtr(arr);
+      new Float32Array(exp.memory.buffer, raw, data.length).set(data);
+      return arr;
     };
 
-    const wtePtr = pin(w.wte.data);
-    const wpePtr = pin(w.wpe.data);
-    const lnfwPtr = pin(w.lnFWeight.data);
-    const lnfbPtr = pin(w.lnFBias.data);
+    const wtePtr  = copyToWasm(w.wte.data);
+    const wpePtr  = copyToWasm(w.wpe.data);
+    const lnfwPtr = copyToWasm(w.lnFWeight.data);
+    const lnfbPtr = copyToWasm(w.lnFBias.data);
 
     for (let i = 0; i < w.blocks.length; i++) {
       const b = w.blocks[i];
       exp.initWeights(
         wtePtr, wpePtr,
-        pin(b.ln1Weight.data), pin(b.ln1Bias.data),
-        pin(b.ln2Weight.data), pin(b.ln2Bias.data),
-        pin(b.attn.cAttnWeight.data), pin(b.attn.cAttnBias.data),
-        pin(b.attn.cProjWeight.data), pin(b.attn.cProjBias.data),
-        pin(b.mlp.cFcWeight.data),    pin(b.mlp.cFcBias.data),
-        pin(b.mlp.cProjWeight.data),  pin(b.mlp.cProjBias.data),
+        copyToWasm(b.ln1Weight.data),      copyToWasm(b.ln1Bias.data),
+        copyToWasm(b.ln2Weight.data),      copyToWasm(b.ln2Bias.data),
+        copyToWasm(b.attn.cAttnWeight.data), copyToWasm(b.attn.cAttnBias.data),
+        copyToWasm(b.attn.cProjWeight.data), copyToWasm(b.attn.cProjBias.data),
+        copyToWasm(b.mlp.cFcWeight.data),  copyToWasm(b.mlp.cFcBias.data),
+        copyToWasm(b.mlp.cProjWeight.data), copyToWasm(b.mlp.cProjBias.data),
         lnfwPtr, lnfbPtr,
         i,
       );
