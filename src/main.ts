@@ -91,11 +91,8 @@ async function main() {
 }
 
 async function loadTokenizer(): Promise<Tokenizer> {
-  // TODO: zastąp tiktoken gdy tokenizer.ts będzie gotowy
-  // import { getEncoding } from "tiktoken";
-  // const enc = getEncoding("gpt2");
-  // return { encode: (t) => Array.from(enc.encode(t)), decode: (ids) => enc.decode(new Uint32Array(ids)) };
-  throw new Error("Tokenizer not implemented yet — see tokenizer.ts");
+  const { tokenizer } = await import("./tokenizer.js");
+  return tokenizer;
 }
 
 main().catch((e) => {
