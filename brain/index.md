@@ -5,6 +5,7 @@
 - [[architecture/overview]] — architektura modelu i stosu technicznego
 - [[research/gpt2-layers]] — warstwy do implementacji
 - [[benchmarks/plan]] — plan pomiarów
+- [[benchmarks/mobile-browser]] — wynik na telefonie (1.30 tok/s)
 
 ## Etapy
 
