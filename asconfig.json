@@ -1,0 +1,18 @@
+{
+  "targets": {
+    "release": {
+      "outFile": "build/tensor.wasm",
+      "exportRuntime": true,
+      "optimizeLevel": 3,
+      "shrinkLevel": 0
+    },
+    "debug": {
+      "outFile": "build/tensor.debug.wasm",
+      "exportRuntime": true,
+      "debug": true
+    }
+  },
+  "options": {
+    "exportRuntime": true
+  }
+}
