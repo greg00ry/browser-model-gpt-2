@@ -1,0 +1,26 @@
+{
+  "name": "browser-model-gpt-2",
+  "version": "1.0.0",
+  "description": "> **Projekt The Brain — Etap 1** > Implementacja GPT-2 (124M) w TypeScript 7 / WebAssembly z benchmarkiem inferencji w przeglądarce.",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsgo --project tsconfig.json",
+    "build:watch": "tsgo --project tsconfig.json --watch",
+    "typecheck": "tsgo --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/greg00ry/browser-model-gpt-2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/greg00ry/browser-model-gpt-2/issues"
+  },
+  "homepage": "https://github.com/greg00ry/browser-model-gpt-2#readme",
+  "devDependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20260620.1"
+  }
+}
