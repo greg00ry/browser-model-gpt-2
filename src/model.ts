@@ -25,26 +25,23 @@ export const GPT2_SMALL: GPT2Config = {
   vocabSize: 50257,
 };
 
-// tokens [seq] -> logits [seq, vocabSize]
+// tokens [seq] -> logits [1, vocabSize] (tylko ostatni token — dla sampling wystarczy)
 export function forward(tokens: number[], weights: GPT2Weights, config: GPT2Config): Tensor {
   const seq = tokens.length;
   const { nEmbd, nHeads, vocabSize } = config;
 
-  // token + position embeddings -> [seq, nEmbd]
   let x = tokenAndPositionEmbeddings(tokens, weights.wte, weights.wpe, nEmbd);
 
-  // 12x transformer blocks
   for (const block of weights.blocks) {
     x = transformerBlock(x, block, nHeads);
   }
 
-  // final layer norm
   x = layerNorm(x, weights.lnFWeight, weights.lnFBias);
 
-  // lm_head: [seq, nEmbd] x [nEmbd, vocabSize] -> [seq, vocabSize]
-  // GPT-2 shares weights: lm_head = wte^T
+  // lm_head tylko dla ostatniego tokenu: [1, nEmbd] x [nEmbd, vocabSize] -> [1, vocabSize]
   const wteT = transposeWeight(weights.wte, vocabSize, nEmbd);
-  return matmul(x, wteT);
+  const lastRow = new Tensor(x.data.slice((seq - 1) * nEmbd, seq * nEmbd), [1, nEmbd]);
+  return matmul(lastRow, wteT);
 }
 
 function tokenAndPositionEmbeddings(

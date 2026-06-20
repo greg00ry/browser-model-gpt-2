@@ -1,81 +1,90 @@
-import { matmul2d, matmul3d, transpose, add, scale, softmax, causalMask, allocF32 } from "./tensor";
+import { matmul2d, matmul3d, transpose, add, scale, softmax, causalMask } from "./tensor";
+import { getScratch } from "./scratch";
 
-// [seq, dModel] x [dModel, 2304] + [2304] -> [seq, 2304]  -> split Q,K,V -> splitHeads -> scaledDotProduct -> mergeHeads -> proj
 export function multiHeadAttention(
   x: Float32Array, seq: i32, dModel: i32,
-  cAttnWeight: Float32Array,              // [dModel, 3*dModel]
-  cAttnBias: Float32Array,                // [3*dModel]
-  cProjWeight: Float32Array,              // [dModel, dModel]
-  cProjBias: Float32Array,                // [dModel]
+  cAttnWeight: Float32Array,
+  cAttnBias: Float32Array,
+  cProjWeight: Float32Array,
+  cProjBias: Float32Array,
   nHeads: i32,
-  out: Float32Array,                      // [seq, dModel]
+  out: Float32Array,
 ): void {
-  const dHead: i32 = dModel / nHeads;
+  const s = getScratch();
+  const dHead: i32   = dModel / nHeads;
   const dModel3: i32 = dModel * 3;
+  const seqDM3: i32  = seq * dModel3;
+  const seqDM: i32   = seq * dModel;
 
-  // QKV projection: [seq, dModel] x [dModel, 3*dModel] -> [seq, 3*dModel]
-  const qkv = allocF32(seq * dModel3);
-  matmul2d(x, seq, dModel, cAttnWeight, dModel3, qkv);
-  add(qkv, cAttnBias, qkv);
+  // QKV projection: [seq, dModel] x [dModel, 3*dModel] -> scratch.qkv
+  matmul2d(x, seq, dModel, cAttnWeight, dModel3, s.qkv);
+  add(s.qkv, cAttnBias, s.qkv, seqDM3);
 
-  // split Q, K, V: each [seq, dModel]
-  const q = sliceCols(qkv, seq, dModel3, 0,       dModel);
-  const k = sliceCols(qkv, seq, dModel3, dModel,   dModel * 2);
-  const v = sliceCols(qkv, seq, dModel3, dModel * 2, dModel3);
+  // split Q, K, V — każdy [seq, dModel] zapisany do osobnego bufora scratch
+  sliceColsTo(s.qkv, seq, dModel3, 0,           dModel,     s.q);
+  sliceColsTo(s.qkv, seq, dModel3, dModel,       dModel * 2, s.k);
+  sliceColsTo(s.qkv, seq, dModel3, dModel * 2,  dModel3,    s.v);
 
   // split heads: [seq, dModel] -> [nHeads, seq, dHead]
-  const qH = splitHeads(q, seq, nHeads, dHead);
-  const kH = splitHeads(k, seq, nHeads, dHead);
-  const vH = splitHeads(v, seq, nHeads, dHead);
+  splitHeadsTo(s.q, seq, nHeads, dHead, s.qH);
+  splitHeadsTo(s.k, seq, nHeads, dHead, s.kH);
+  splitHeadsTo(s.v, seq, nHeads, dHead, s.vH);
 
-  // scores: [nHeads, seq, seq]
-  const mask = allocF32(seq * seq);
-  causalMask(seq, mask);
-  const scores = scaledDotProduct(qH, kH, nHeads, seq, dHead, mask);
+  // refresh maska kauzalna gdy seq się zmienia
+  if (s.maskSeq !== seq) {
+    causalMask(seq, s.mask);
+    s.maskSeq = seq;
+  }
 
-  // weighted sum: [nHeads, seq, dHead]
-  const attended = allocF32(nHeads * seq * dHead);
-  matmul3d(scores, nHeads, seq, seq, vH, dHead, attended);
+  // scores: softmax(Q @ K^T / sqrt(dHead) + mask) -> scratch.scores
+  scaledDotProductTo(s.qH, s.kH, nHeads, seq, dHead, s.mask, s.kT, s.scores);
 
-  // merge heads: [nHeads, seq, dHead] -> [seq, dModel]
-  const merged = mergeHeads(attended, nHeads, seq, dHead);
+  // weighted sum: [nHeads, seq, seq] x [nHeads, seq, dHead] -> scratch.attended
+  matmul3d(s.scores, nHeads, seq, seq, s.vH, dHead, s.attended);
 
-  // output projection: [seq, dModel] x [dModel, dModel] -> [seq, dModel]
-  matmul2d(merged, seq, dModel, cProjWeight, dModel, out);
-  add(out, cProjBias, out);
+  // merge heads: [nHeads, seq, dHead] -> scratch.merged
+  mergeHeadsTo(s.attended, nHeads, seq, dHead, s.merged);
+
+  // output projection: [seq, dModel] x [dModel, dModel] -> out
+  matmul2d(s.merged, seq, dModel, cProjWeight, dModel, out);
+  add(out, cProjBias, out, seqDM);
 }
 
-// softmax(Q @ K^T / sqrt(dHead) + mask)
-function scaledDotProduct(
+// softmax(Q @ K^T / sqrt(dHead) + mask) — zapisuje do scores, używa kT jako scratch
+function scaledDotProductTo(
   q: Float32Array, k: Float32Array,
   nHeads: i32, seq: i32, dHead: i32,
   mask: Float32Array,
-): Float32Array {
-  // [nHeads, seq, dHead] x [nHeads, dHead, seq] -> [nHeads, seq, seq]
-  const kT = allocF32(nHeads * seq * dHead);
+  kT: Float32Array,
+  scores: Float32Array,
+): void {
+  const nElems: i32 = nHeads * seq * seq;
+  const seqSq: i32  = seq * seq;
+
+  // transpose K: [nHeads, seq, dHead] -> [nHeads, dHead, seq]
   transpose(k, nHeads, seq, dHead, kT);
 
-  const raw = allocF32(nHeads * seq * seq);
-  matmul3d(q, nHeads, seq, dHead, kT, seq, raw);
+  // Q @ K^T: [nHeads, seq, dHead] x [nHeads, dHead, seq] -> scores [nHeads, seq, seq]
+  matmul3d(q, nHeads, seq, dHead, kT, seq, scores);
 
+  // scale + mask
   const factor: f32 = 1.0 / Mathf.sqrt(f32(dHead));
-  scale(raw, factor, raw);
+  scale(scores, factor, scores, nElems);
 
-  // broadcast mask [seq, seq] across heads
-  const seqSq: i32 = seq * seq;
   for (let h: i32 = 0; h < nHeads; h++) {
     for (let i: i32 = 0; i < seqSq; i++) {
-      unchecked(raw[h * seqSq + i] += mask[i]);
+      unchecked(scores[h * seqSq + i] += mask[i]);
     }
   }
 
-  softmax(raw, nHeads * seq, seq, raw);
-  return raw;
+  softmax(scores, nHeads * seq, seq, scores);
 }
 
-// [seq, dModel] -> [nHeads, seq, dHead]
-function splitHeads(src: Float32Array, seq: i32, nHeads: i32, dHead: i32): Float32Array {
-  const dst = allocF32(nHeads * seq * dHead);
+// [seq, dModel] -> [nHeads, seq, dHead] (direct write, bez allocacji)
+function splitHeadsTo(
+  src: Float32Array, seq: i32, nHeads: i32, dHead: i32,
+  dst: Float32Array,
+): void {
   for (let s: i32 = 0; s < seq; s++) {
     for (let h: i32 = 0; h < nHeads; h++) {
       for (let d: i32 = 0; d < dHead; d++) {
@@ -83,13 +92,14 @@ function splitHeads(src: Float32Array, seq: i32, nHeads: i32, dHead: i32): Float
       }
     }
   }
-  return dst;
 }
 
-// [nHeads, seq, dHead] -> [seq, dModel]
-function mergeHeads(src: Float32Array, nHeads: i32, seq: i32, dHead: i32): Float32Array {
+// [nHeads, seq, dHead] -> [seq, dModel] (direct write)
+function mergeHeadsTo(
+  src: Float32Array, nHeads: i32, seq: i32, dHead: i32,
+  dst: Float32Array,
+): void {
   const dModel: i32 = nHeads * dHead;
-  const dst = allocF32(seq * dModel);
   for (let h: i32 = 0; h < nHeads; h++) {
     for (let s: i32 = 0; s < seq; s++) {
       for (let d: i32 = 0; d < dHead; d++) {
@@ -97,20 +107,18 @@ function mergeHeads(src: Float32Array, nHeads: i32, seq: i32, dHead: i32): Float
       }
     }
   }
-  return dst;
 }
 
-// slice columns [colStart, colEnd) from [rows, srcCols]
-function sliceCols(
+// slice columns [colStart, colEnd) z [rows, srcCols] (direct write)
+function sliceColsTo(
   src: Float32Array, rows: i32, srcCols: i32,
   colStart: i32, colEnd: i32,
-): Float32Array {
+  dst: Float32Array,
+): void {
   const outCols: i32 = colEnd - colStart;
-  const dst = allocF32(rows * outCols);
   for (let r: i32 = 0; r < rows; r++) {
     for (let c: i32 = 0; c < outCols; c++) {
       unchecked(dst[r * outCols + c] = src[r * srcCols + colStart + c]);
     }
   }
-  return dst;
 }

@@ -1,18 +1,17 @@
 // AssemblyScript — kompiluje do prawdziwego .wasm
 // Typy: f32/i32 zamiast number, Mathf zamiast Math, unchecked() dla wydajności
 
-// ---- stałe f32 ----
 const GELU_COEF: f32     = 0.044715;
-const SQRT_2_OVER_PI: f32 = 0.7978845608; // sqrt(2/π)
+const SQRT_2_OVER_PI: f32 = 0.7978845608;
 const NEG_INF: f32        = -Infinity;
 
-// ---- matmul ----
-// [M, K] x [K, N] -> [out]   (out musi być zaalokowany przez wywołującego)
+// [M, K] x [K, N] -> out  (zeruje out przed akumulacją — wymagane dla scratch re-use)
 export function matmul2d(
   a: Float32Array, aRows: i32, aCols: i32,
   b: Float32Array, bCols: i32,
   out: Float32Array,
 ): void {
+  memory.fill(out.dataStart, 0, (aRows * bCols) << 2);
   for (let m: i32 = 0; m < aRows; m++) {
     for (let k: i32 = 0; k < aCols; k++) {
       const aVal = unchecked(a[m * aCols + k]);
@@ -23,24 +22,29 @@ export function matmul2d(
   }
 }
 
-// batched: [B, M, K] x [B, K, N] -> [B, M, N]
+// batched bez subarray — offsety zamiast widoków (eliminuje alokacje)
 export function matmul3d(
   a: Float32Array, B: i32, M: i32, K: i32,
   b: Float32Array, N: i32,
   out: Float32Array,
 ): void {
-  const sliceA: i32 = M * K;
-  const sliceB: i32 = K * N;
-  const sliceO: i32 = M * N;
+  memory.fill(out.dataStart, 0, (B * M * N) << 2);
   for (let i: i32 = 0; i < B; i++) {
-    const aSlice = a.subarray(i * sliceA, (i + 1) * sliceA);
-    const bSlice = b.subarray(i * sliceB, (i + 1) * sliceB);
-    const oSlice = out.subarray(i * sliceO, (i + 1) * sliceO);
-    matmul2d(aSlice, M, K, bSlice, N, oSlice);
+    const aBase: i32 = i * M * K;
+    const bBase: i32 = i * K * N;
+    const oBase: i32 = i * M * N;
+    for (let m: i32 = 0; m < M; m++) {
+      for (let k: i32 = 0; k < K; k++) {
+        const aVal = unchecked(a[aBase + m * K + k]);
+        for (let n: i32 = 0; n < N; n++) {
+          unchecked(out[oBase + m * N + n] += aVal * b[bBase + k * N + n]);
+        }
+      }
+    }
   }
 }
 
-// ---- transpose — swap ostatnich dwóch osi ----
+// swap last two axes
 export function transpose(
   src: Float32Array, batches: i32, rows: i32, cols: i32,
   dst: Float32Array,
@@ -55,24 +59,24 @@ export function transpose(
   }
 }
 
-// ---- add element-wise (b broadcastuje po ostatniej osi) ----
+// add element-wise (b broadcastuje po ostatniej osi) — nElems zamiast out.length
 export function add(
-  a: Float32Array, b: Float32Array, out: Float32Array,
+  a: Float32Array, b: Float32Array, out: Float32Array, nElems: i32,
 ): void {
   const bLen: i32 = b.length;
-  for (let i: i32 = 0; i < out.length; i++) {
+  for (let i: i32 = 0; i < nElems; i++) {
     unchecked(out[i] = a[i] + b[i % bLen]);
   }
 }
 
-// ---- scale przez skalar ----
-export function scale(src: Float32Array, factor: f32, dst: Float32Array): void {
-  for (let i: i32 = 0; i < src.length; i++) {
+// scale — nElems zamiast src.length
+export function scale(src: Float32Array, factor: f32, dst: Float32Array, nElems: i32): void {
+  for (let i: i32 = 0; i < nElems; i++) {
     unchecked(dst[i] = src[i] * factor);
   }
 }
 
-// ---- softmax po ostatniej osi ----
+// softmax po ostatniej osi — już ma explicit rows/cols
 export function softmax(src: Float32Array, rows: i32, cols: i32, dst: Float32Array): void {
   for (let r: i32 = 0; r < rows; r++) {
     const offset: i32 = r * cols;
@@ -93,16 +97,16 @@ export function softmax(src: Float32Array, rows: i32, cols: i32, dst: Float32Arr
   }
 }
 
-// ---- GELU (aproksymacja tanh — identyczna z GPT-2 / HuggingFace) ----
-export function gelu(src: Float32Array, dst: Float32Array): void {
-  for (let i: i32 = 0; i < src.length; i++) {
+// GELU — nElems zamiast src.length
+export function gelu(src: Float32Array, dst: Float32Array, nElems: i32): void {
+  for (let i: i32 = 0; i < nElems; i++) {
     const x = unchecked(src[i]);
     const inner = SQRT_2_OVER_PI * (x + GELU_COEF * x * x * x);
     unchecked(dst[i] = 0.5 * x * (1.0 + Mathf.tanh(inner)));
   }
 }
 
-// ---- LayerNorm po ostatniej osi ----
+// LayerNorm — explicit rows/cols
 export function layerNorm(
   src: Float32Array, rows: i32, cols: i32,
   weight: Float32Array, bias: Float32Array,
@@ -127,7 +131,7 @@ export function layerNorm(
   }
 }
 
-// ---- maska kauzalna — górny trójkąt = -Infinity ----
+// kauzalna maska — górny trójkąt = -Infinity
 export function causalMask(size: i32, dst: Float32Array): void {
   for (let r: i32 = 0; r < size; r++) {
     for (let c: i32 = 0; c < size; c++) {
@@ -136,7 +140,6 @@ export function causalMask(size: i32, dst: Float32Array): void {
   }
 }
 
-// ---- alokacja (host wywołuje przez __new) ----
 export function allocF32(length: i32): Float32Array {
   return new Float32Array(length);
 }

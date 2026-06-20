@@ -1,6 +1,7 @@
-import { add, layerNorm, allocF32 } from "./tensor";
+import { add, layerNorm } from "./tensor";
 import { multiHeadAttention } from "./attention";
 import { feedForward } from "./feedforward";
+import { getScratch } from "./scratch";
 
 // x = x + attn(ln1(x))
 // x = x + mlp(ln2(x))
@@ -14,17 +15,16 @@ export function transformerBlock(
   cFcProjWeight: Float32Array, cFcProjBias: Float32Array,
   nHeads: i32,
 ): void {
-  const tmp = allocF32(seq * dModel);
+  const s = getScratch();
+  const seqDM: i32 = seq * dModel;
 
   // attn branch: ln1 -> attention -> residual
-  layerNorm(x, seq, dModel, ln1Weight, ln1Bias, tmp);
-  const attnOut = allocF32(seq * dModel);
-  multiHeadAttention(tmp, seq, dModel, cAttnWeight, cAttnBias, cProjWeight, cProjBias, nHeads, attnOut);
-  add(x, attnOut, x);
+  layerNorm(x, seq, dModel, ln1Weight, ln1Bias, s.tmp);
+  multiHeadAttention(s.tmp, seq, dModel, cAttnWeight, cAttnBias, cProjWeight, cProjBias, nHeads, s.attnOut);
+  add(x, s.attnOut, x, seqDM);
 
   // mlp branch: ln2 -> feedforward -> residual
-  layerNorm(x, seq, dModel, ln2Weight, ln2Bias, tmp);
-  const mlpOut = allocF32(seq * dModel);
-  feedForward(tmp, seq, dModel, cFcWeight, cFcBias, cFcProjWeight, cFcProjBias, mlpOut);
-  add(x, mlpOut, x);
+  layerNorm(x, seq, dModel, ln2Weight, ln2Bias, s.tmp);
+  feedForward(s.tmp, seq, dModel, cFcWeight, cFcBias, cFcProjWeight, cFcProjBias, s.mlpOut);
+  add(x, s.mlpOut, x, seqDM);
 }

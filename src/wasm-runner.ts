@@ -20,15 +20,16 @@ interface AsmExports {
   dataPtr(arr: number): number;
   newI32(length: number): number;
   i32DataPtr(arr: number): number;
+  initScratch(maxSeq: number): void;
+  computeWteT(): void;
   __pin(ptr: number): number;
   __unpin(ptr: number): void;
 }
 
 export class WasmRunner {
   private exp!: AsmExports;
-  private outObj: number = 0;   // AS Float32Array object pointer (dla runForward)
-  private outRaw: number = 0;   // raw data pointer (dla odczytu wyników)
-  private seqLen: number = 0;
+  private outObj: number = 0;
+  private outRaw: number = 0;
   private readonly vocabSize: number;
 
   private constructor(private config: GPT2Config) {
@@ -47,6 +48,12 @@ export class WasmRunner {
     });
     runner.exp = instance.exports as unknown as AsmExports;
     runner.loadWeights(weights);
+    runner.exp.initScratch(config.nCtx);
+    runner.exp.computeWteT();
+    // alokuj output buffer raz (tylko last-token logits = vocabSize)
+    const exp2 = runner.exp;
+    runner.outObj = exp2.__pin(exp2.newF32(config.vocabSize));
+    runner.outRaw = exp2.dataPtr(runner.outObj);
     return runner;
   }
 
@@ -55,24 +62,15 @@ export class WasmRunner {
     const { exp, vocabSize } = this;
     const seq = tokens.length;
 
-    // (re)alokuj bufor wyjściowy jeśli seq się zmienił
-    if (seq !== this.seqLen) {
-      if (this.outObj) exp.__unpin(this.outObj);
-      this.outObj = exp.__pin(exp.newF32(seq * vocabSize));   // managed object
-      this.outRaw = exp.dataPtr(this.outObj);                  // raw data ptr
-      this.seqLen = seq;
-    }
-
-    // utwórz Int32Array z tokenami w pamięci Wasm
     const tokArr = exp.__pin(exp.newI32(seq));
     new Int32Array(exp.memory.buffer, exp.i32DataPtr(tokArr), seq).set(tokens);
 
-    exp.runForward(tokArr, this.outObj);  // przekazuj managed object, nie raw ptr
+    exp.runForward(tokArr, this.outObj);
     exp.__unpin(tokArr);
 
-    // odczytaj wynik z raw data pointer
-    const view = new Float32Array(exp.memory.buffer, this.outRaw, seq * vocabSize);
-    return new Tensor(new Float32Array(view), [seq, vocabSize]);
+    // forward zwraca tylko last-token logits [vocabSize]
+    const view = new Float32Array(exp.memory.buffer, this.outRaw, vocabSize);
+    return new Tensor(new Float32Array(view), [1, vocabSize]);
   }
 
   private loadWeights(w: GPT2Weights): void {
