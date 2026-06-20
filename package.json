@@ -13,7 +13,8 @@
     "benchmark": "node dist/main.js weights/gpt2.safetensors build/model.wasm \"The brain is\"",
     "benchmark:python": "python3 scripts/benchmark_python.py \"The brain is\" 20",
     "benchmark:numpy": "python3 scripts/benchmark_numpy.py weights/gpt2.safetensors \"The brain is\" 20",
-    "benchmark:all": "bash scripts/benchmark_all.sh \"The brain is\" 20"
+    "benchmark:all": "bash scripts/benchmark_all.sh \"The brain is\" 20",
+    "serve": "python3 -m http.server 8080"
   },
   "repository": {
     "type": "git",

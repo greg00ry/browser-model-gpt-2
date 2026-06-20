@@ -72,3 +72,23 @@ export async function loadFromFile(path: string, config: GPT2Config): Promise<GP
   const bytes = await readFile(path);
   return loadSafetensors(bytes.buffer, config);
 }
+
+export async function loadFromUrl(url: string, config: GPT2Config, onProgress?: (pct: number) => void): Promise<GPT2Weights> {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`fetch ${url} failed: ${resp.status}`);
+  const total = Number(resp.headers.get("content-length") ?? 0);
+  const reader = resp.body!.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    if (total) onProgress?.(received / total);
+  }
+  const buf = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) { buf.set(chunk, offset); offset += chunk.length; }
+  return loadSafetensors(buf.buffer, config);
+}

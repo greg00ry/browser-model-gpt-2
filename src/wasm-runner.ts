@@ -36,24 +36,30 @@ export class WasmRunner {
     this.vocabSize = config.vocabSize;
   }
 
-  static async load(
-    wasmPath: string,
-    weights: GPT2Weights,
-    config: GPT2Config = GPT2_SMALL,
-  ): Promise<WasmRunner> {
+  static async load(wasmPath: string, weights: GPT2Weights, config: GPT2Config = GPT2_SMALL): Promise<WasmRunner> {
     const runner = new WasmRunner(config);
     const bytes = await readFile(wasmPath);
     const { instance } = await WebAssembly.instantiate(bytes, {
       env: { abort: () => { throw new Error("Wasm abort"); } },
     });
+    return WasmRunner.setup(runner, instance, weights);
+  }
+
+  static async loadUrl(wasmUrl: string, weights: GPT2Weights, config: GPT2Config = GPT2_SMALL): Promise<WasmRunner> {
+    const runner = new WasmRunner(config);
+    const { instance } = await WebAssembly.instantiateStreaming(fetch(wasmUrl), {
+      env: { abort: () => { throw new Error("Wasm abort"); } },
+    });
+    return WasmRunner.setup(runner, instance, weights);
+  }
+
+  private static setup(runner: WasmRunner, instance: WebAssembly.Instance, weights: GPT2Weights): WasmRunner {
     runner.exp = instance.exports as unknown as AsmExports;
     runner.loadWeights(weights);
-    runner.exp.initScratch(config.nCtx);
+    runner.exp.initScratch(runner.config.nCtx);
     runner.exp.computeWteT();
-    // alokuj output buffer raz (tylko last-token logits = vocabSize)
-    const exp2 = runner.exp;
-    runner.outObj = exp2.__pin(exp2.newF32(config.vocabSize));
-    runner.outRaw = exp2.dataPtr(runner.outObj);
+    runner.outObj = runner.exp.__pin(runner.exp.newF32(runner.config.vocabSize));
+    runner.outRaw = runner.exp.dataPtr(runner.outObj);
     return runner;
   }
 
