@@ -12,7 +12,7 @@ export function matmul2d(
   out: Float32Array,
 ): void {
   memory.fill(out.dataStart, 0, (aRows * bCols) << 2);
-  const bCols4: i32 = bCols & ~3;  // zaokrąglone w dół do wielokrotności 4
+  const bCols4: i32 = bCols & ~3;
 
   for (let m: i32 = 0; m < aRows; m++) {
     for (let k: i32 = 0; k < aCols; k++) {
@@ -27,7 +27,6 @@ export function matmul2d(
           f32x4.add(v128.load(oRow + nb), f32x4.mul(aVec, v128.load(bRow + nb)))
         );
       }
-      // scalar tail (gdy bCols % 4 != 0, np. vocab=50257)
       const aVal = f32x4.extract_lane(aVec, 0);
       for (; n < bCols; n++) {
         unchecked(out[m * bCols + n] += aVal * b[k * bCols + n]);
