@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsgo --project tsconfig.json",
     "build:watch": "tsgo --project tsconfig.json --watch",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "download-weights": "node scripts/download-weights.mjs"
   },
   "repository": {
     "type": "git",
