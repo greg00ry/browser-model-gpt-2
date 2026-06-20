@@ -7,7 +7,9 @@
     "build": "tsgo --project tsconfig.json",
     "build:watch": "tsgo --project tsconfig.json --watch",
     "typecheck": "tsgo --noEmit",
-    "download-weights": "node scripts/download-weights.mjs"
+    "download-weights": "node scripts/download-weights.mjs",
+    "build:wasm": "asc assembly/tensor.ts --outFile build/tensor.wasm --textFile build/tensor.wat --target release --exportRuntime",
+    "build:all": "npm run build:wasm && npm run build"
   },
   "repository": {
     "type": "git",
