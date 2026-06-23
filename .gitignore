@@ -1,0 +1,5 @@
+node_modules/
+dist/
+weights/
+build/*.wat
+.DS_Store
